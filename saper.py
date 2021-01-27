@@ -1,5 +1,6 @@
 import itertools
 import os
+import string
 from random import randint
 
 
@@ -13,10 +14,11 @@ class Game:
         self._bombs = self._generate_bombs()
         self._moves = 0
         self._matrix = self._generate_matrix()
-        self._full_width = self.width * 4 - 3
+        self._full_width = (self.width + 1) * 4 - 3
+        self._ruler = self._get_ruler()
 
     def start(self):
-        self._show(True)
+        self._show(False)
 
     def win(self):
         self._show(True)
@@ -30,6 +32,14 @@ class Game:
 
     def move(self):
         text = input('Move: ').lower()
+        if text in ['stop', 'exit']:
+            exit(0)
+        if text == 'show':
+            self._show(True)
+            return
+        if text == 'hide':
+            self._show(False)
+            return
         if text.count('x') != 1:
             printc('Use format like: <W>x<H>', Colors.RED)
             return
@@ -57,24 +67,30 @@ class Game:
     def _shoot(self, x, y):
         cell = self.get_cell(x, y)
         if cell and not cell.uncovered and cell.reveal():
-            for nx, ny in cell.get_neighbours():
+            for nx, ny in self._get_neighbours(cell.x, cell.y, corners=False):
                 self._shoot(nx, ny)
 
     def _check_win(self):
-        self.progress = sum(1 for cell in itertools.chain(*self._matrix) if cell.uncovered) / (self.width * self.height - self.n_bombs)
+        total = self.width * self.height
+        bombs = sum(1 for cell in itertools.chain(*self._matrix) if isinstance(cell, Bomb))
+        uncovered = sum(1 for cell in itertools.chain(*self._matrix) if cell.uncovered)
+        self.progress = uncovered / (total - bombs)
         return self.progress == 1
 
     def _generate_bombs(self):
         return (Bomb(randint(0, self.width-1), randint(0, self.height-1)) for _ in range(self.n_bombs))
 
     def _show_matrix(self, expose=False):
-        print(f'\n{"_" * (self.width * 4 - 3)}\n'.join([' | '.join([c.show(expose) for c in r]) for r in self._matrix]))
+        print(f'\n{"_" * self._full_width}\n'.join([' | '.join([c.show(expose) for c in [Ruler(i-1)]+r]) for i, r in enumerate([self._ruler] + self._matrix)]))
+
+    def _get_ruler(self):
+        return [Ruler(i) for i in range(self.width)]
 
     def _get_neighbours(self, start_x=0, start_y=0, corners=True):
         for x in range(-1, 2):
             for y in range(-1, 2):
                 dest_x, dest_y = start_x + x, start_y + y
-                if corners and (x or y) or (x ^ y) and (dest_x >= 0 and dest_y >= 0):
+                if ((corners and (x or y)) or abs(x + y) == 1) and (dest_x >= 0 and dest_y >= 0):
                     yield dest_x, dest_y
 
     def _generate_matrix(self):
@@ -85,10 +101,9 @@ class Game:
         for h, row in enumerate(matrix):
             for w, field in enumerate(row):
                 value = 0
-                for nh, nw in self._get_neighbours(corners=True):
+                for nh, nw in self._get_neighbours(w, h, corners=True):
                     try:
-                        m_x, m_y = h+nh, w+nw
-                        if m_x >= 0 and m_y >= 0 and isinstance(matrix[m_x][m_y], Bomb):
+                        if isinstance(matrix[nw][nh], Bomb):
                             value += 1
                     except IndexError:
                         pass
@@ -99,16 +114,11 @@ class Game:
     def _show_stats(self):
         print(f'{"Moves:":{int(2*self._full_width/3)}}{self._moves:>{int(self._full_width/3)}}')
         print(f'{"Progress:":{int(2*self._full_width/3)}}{self.progress * 100:>{int(self._full_width/3)}.0f}')
-        # print(f'{self.progress=} {self.n_bombs=}')
-        # print(f'total:{self.width*self.height}')
-        # print(f'total-bombs:{self.width*self.height - self.n_bombs}')
-        # print(f'uncovered: {sum(1 for cell in itertools.chain(*self._matrix) if cell.uncovered)}')
-        # print(f'ratio: {sum(1 for cell in itertools.chain(*self._matrix) if cell.uncovered) / (self.width*self.height - self.n_bombs)}')
 
     def _show(self, expose=False):
         os.system('clear')
         printc('='*self._full_width)
-        printc(f'{"Saper":{int(2*self._full_width/3)}} {"v1.0":>{int(self._full_width/3)}}', Colors.BLUE)
+        printc(f'{"Saper":{int(2*self._full_width/3)}} {"v1.1":>{int(self._full_width/3 - 1)}}', Colors.BLUE)
         printc('='*self._full_width)
         self._show_matrix(expose)
         printc('='*self._full_width)
@@ -123,6 +133,14 @@ class Game:
     @property
     def is_open(self):
         return self.won is None
+
+
+class Ruler:
+    def __init__(self, i):
+        self.sign = string.ascii_uppercase[i] if i >= 0 else ' '
+
+    def show(self, *args, **kwargs):
+        return color(self.sign, Colors.CYAN)
 
 
 class Field:
@@ -142,15 +160,14 @@ class Field:
                 yield n
 
     def show(self, reveal=False):
-        # return color(str(self.value or ' '), self._get_color()) if (self.uncovered or reveal) else '#'
-        return color(str(self.value or ' '), self._get_color()) if self.uncovered else '#'
+        return color(str(self.value or ' '), self._get_color()) if self.uncovered or reveal else '#'
 
     def shoot(self, recursive=True):
         self.uncovered = True
         return False
 
     def reveal(self):
-        if self.value in [0, 1]:
+        if self.value in [0, 1] and not self.uncovered:
             self.uncovered = True
             return True
         return False
@@ -168,6 +185,9 @@ class Bomb(Field):
 
     def shoot(self, *args, **kwargs):
         return True
+
+    def reveal(self):
+        return False
 
     def __str__(self):
         return f'b[{self.x}, {self.y}]'
