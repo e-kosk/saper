@@ -1,11 +1,25 @@
 import itertools
 import os
 import string
+from platform import system
 from random import randint
 
 
 class Game:
+    """
+    Base game class.
+    Start with start() method.
+    Call move() method to make a move.
+    Finish when is_open attribute is not None.
+    Game result is is_open value: True - won, False - lost.
+
+    Should work the same on each of Linux, Windows and Mac system.
+    """
+    clear_command = 'cls' if system() == 'Windows' else 'clear'
+
     def __init__(self, width, height, n_bombs):
+        if width > 23 or height > 23:
+            raise ValueError('Maximum size is 23x23.')
         self.width = width
         self.height = height
         self.n_bombs = n_bombs
@@ -18,19 +32,23 @@ class Game:
         self._ruler = self._get_ruler()
 
     def start(self):
+        """Starts the game"""
         self._show(False)
 
     def win(self):
+        """Finishes the game with won status"""
         self._show(True)
         printc(f'You won in {self._moves} moves.', Colors.GREEN)
         self.won = True
 
     def lose(self):
+        """Finishes the game with lost status"""
         self._show(True)
         printc(f'You lost in {self._moves} move.', Colors.RED)
         self.won = False
 
     def move(self):
+        """Asks user for cords and performs user's guess"""
         text = input('Move: ').lower()
         if text in ['stop', 'exit']:
             exit(0)
@@ -44,14 +62,18 @@ class Game:
             printc('Use format like: <W>x<H>', Colors.RED)
             return
         x, y = text.split('x')
+        if not x or not y:
+            printc('Use format like: <W>x<H>', Colors.RED)
+            return
         try:
-            self._make_move(int(x)-1, int(y)-1)
+            self._make_move(string.ascii_lowercase.index(x), string.ascii_lowercase.index(y))
         except ValueError:
-            printc('Only numbers ale allowed!', Colors.RED)
+            printc('Only letters ale allowed!', Colors.RED)
 
     def _make_move(self, x, y):
+        """Performs user's guess"""
         self._moves += 1
-        self._shoot(x, y)
+        self._make_island(x, y)
         cell = self.get_cell(x, y)
         if not cell:
             printc(f'Maximum size is {self.width} x {self.height}!', Colors.RED)
@@ -64,13 +86,15 @@ class Game:
         else:
             self._show(False)
 
-    def _shoot(self, x, y):
+    def _make_island(self, x, y):
+        """Recursively uncovers all 0 and 1 fields nearby x and y"""
         cell = self.get_cell(x, y)
         if cell and not cell.uncovered and cell.reveal():
             for nx, ny in self._get_neighbours(cell.x, cell.y, corners=False):
-                self._shoot(nx, ny)
+                self._make_island(nx, ny)
 
     def _check_win(self):
+        """Calculates the progress. Returns won status"""
         total = self.width * self.height
         bombs = sum(1 for cell in itertools.chain(*self._matrix) if isinstance(cell, Bomb))
         uncovered = sum(1 for cell in itertools.chain(*self._matrix) if cell.uncovered)
@@ -78,15 +102,19 @@ class Game:
         return self.progress == 1
 
     def _generate_bombs(self):
+        """Generates bombs in random positions"""
         return (Bomb(randint(0, self.width-1), randint(0, self.height-1)) for _ in range(self.n_bombs))
 
     def _show_matrix(self, expose=False):
+        """Displays game's matrix in current state to user"""
         print(f'\n{"_" * self._full_width}\n'.join([' | '.join([c.show(expose) for c in [Ruler(i-1)]+r]) for i, r in enumerate([self._ruler] + self._matrix)]))
 
     def _get_ruler(self):
+        """Returns alphabetical ruler"""
         return [Ruler(i) for i in range(self.width)]
 
     def _get_neighbours(self, start_x=0, start_y=0, corners=True):
+        """Generates direct neighbours' x and y positions"""
         for x in range(-1, 2):
             for y in range(-1, 2):
                 dest_x, dest_y = start_x + x, start_y + y
@@ -94,6 +122,7 @@ class Game:
                     yield dest_x, dest_y
 
     def _generate_matrix(self):
+        """Generates game matrix with bombs"""
         matrix = [[Field(w, h) for w in range(self.width)] for h in range(self.height)]
 
         for bomb in self._bombs:
@@ -112,19 +141,22 @@ class Game:
         return matrix
 
     def _show_stats(self):
+        """Shows game statistics"""
         print(f'{"Moves:":{int(2*self._full_width/3)}}{self._moves:>{int(self._full_width/3)}}')
-        print(f'{"Progress:":{int(2*self._full_width/3)}}{self.progress * 100:>{int(self._full_width/3)}.0f}')
+        print(f'{"Progress:":{int(2*self._full_width/3)-1}}{self.progress * 100:>{int(self._full_width/3)}.0f}%')
 
     def _show(self, expose=False):
-        os.system('clear')
+        """Displays all game data (name, matrix, stats)"""
+        os.system(self.clear_command)
         printc('='*self._full_width)
-        printc(f'{"Saper":{int(2*self._full_width/3)}} {"v1.1":>{int(self._full_width/3 - 1)}}', Colors.BLUE)
+        printc(f'{"Saper":{int(2*self._full_width/3)}} {"v1.2":>{int(self._full_width/3 - 1)}}', Colors.BLUE)
         printc('='*self._full_width)
         self._show_matrix(expose)
         printc('='*self._full_width)
         self._show_stats()
 
     def get_cell(self, x, y):
+        """Returns cell or None"""
         try:
             return self._matrix[y][x]
         except IndexError:
@@ -132,6 +164,7 @@ class Game:
 
     @property
     def is_open(self):
+        """Game status"""
         return self.won is None
 
 
@@ -151,22 +184,21 @@ class Field:
         self.value = 0
 
     def _get_color(self):
+        """Returns proper color based on cell value"""
         colors = (Colors.BLUE, Colors.CYAN, Colors.GREEN, Colors.YELLOW, Colors.RED)
         return colors[self.value-1 if self.value <= 4 else 4]
 
-    def get_neighbours(self):
-        for n in ((self.x-1, self.y), (self.x+1, self.y), (self.x, self.y-1), (self.x, self.y+1)):
-            if n[0] >= 0 and n[1] >= 0:
-                yield n
-
     def show(self, reveal=False):
+        """Returns representative sign based on cell value and uncovered status"""
         return color(str(self.value or ' '), self._get_color()) if self.uncovered or reveal else '#'
 
     def shoot(self, recursive=True):
+        """Uncovers cell. Returns False as it is not a bomb"""
         self.uncovered = True
         return False
 
     def reveal(self):
+        """Reveals cell if it is allowed. Returns permission for next searching"""
         if self.value in [0, 1] and not self.uncovered:
             self.uncovered = True
             return True
@@ -181,12 +213,15 @@ class Field:
 
 class Bomb(Field):
     def show(self, reveal=False):
+        """Returns representative sign based on cell uncovered status"""
         return color('*', Colors.RED) if reveal else '#'
 
     def shoot(self, *args, **kwargs):
+        """Returns True as it is a bomb. Game should stop now"""
         return True
 
     def reveal(self):
+        """Revealing bombs is not allowed. No permission for next searching"""
         return False
 
     def __str__(self):
@@ -197,6 +232,7 @@ class Bomb(Field):
 
 
 class Colors:
+    """Colors for colorful output"""
     HEADER = '\033[95m'
     BLUE = '\033[94m'
     CYAN = '\033[96m'
@@ -209,10 +245,12 @@ class Colors:
 
 
 def printc(text, c=''):
+    """Prints with color"""
     print(color(text, c))
 
 
 def color(text, c=''):
+    """Returns colorful text"""
     return f'{c}{text}{Colors.END_COLOR}'
 
 
